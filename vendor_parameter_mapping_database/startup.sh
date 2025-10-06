@@ -1,130 +1,128 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# MongoDB startup and initialization script (idempotent)
+# - Waits for mongod to be available
+# - Ensures admin/app users exist
+# - Executes init.js only if needed (marker/index check)
+# - Safe to re-run multiple times
 
-# MongoDB startup and initialization script
-# POSIX-compliant; starts mongod, ensures users, runs init.js idempotently
+set -euo pipefail
 
 DB_NAME="${DB_NAME:-myapp}"
 DB_USER="${DB_USER:-appuser}"
 DB_PASSWORD="${DB_PASSWORD:-dbuser123}"
 DB_PORT="${DB_PORT:-5000}"
+MONGO_HOST="${MONGO_HOST:-localhost}"
 
-echo "Starting MongoDB setup for DB=${DB_NAME} on port ${DB_PORT}..."
+echo "[startup] Starting MongoDB setup for DB=${DB_NAME} on ${MONGO_HOST}:${DB_PORT}..."
 
-# Check if MongoDB is already running
-if mongosh --port "${DB_PORT}" --eval "db.adminCommand('ping')" > /dev/null 2>&1; then
-    echo "MongoDB is already running on port ${DB_PORT}"
+# Determine if mongod is already running and reachable
+if mongosh --host "${MONGO_HOST}" --port "${DB_PORT}" --quiet --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
+  echo "[startup] MongoDB reachable at ${MONGO_HOST}:${DB_PORT}"
 else
-    # Check if MongoDB is running on a different port and stop it
-    if pgrep -x mongod >/dev/null 2>&1; then
-        MONGO_PID=$(pgrep -x mongod | head -1)
-        CURRENT_PORT=$(sudo lsof -Pan -p "$MONGO_PID" -i 2>/dev/null | awk -F: '/TCP/ {print $2}' | awk '{print $1}' | head -1)
-        if [ -n "$CURRENT_PORT" ] && [ "$CURRENT_PORT" != "${DB_PORT}" ]; then
-            echo "MongoDB running on different port ($CURRENT_PORT). Stopping..."
-            sudo pkill -x mongod
-            sleep 2
-        fi
+  echo "[startup] MongoDB not reachable; attempting local launch on port ${DB_PORT}..."
+
+  # If mongod is already running on another port, don't kill it; just proceed to wait for the target port
+  # Start a local mongod if one is not running on the desired port
+  if ! pgrep -x mongod >/dev/null 2>&1; then
+    echo "[startup] Launching mongod..."
+    nohup mongod --dbpath /var/lib/mongodb --port "${DB_PORT}" --bind_ip 127.0.0.1 > /var/lib/mongodb/mongod.log 2>&1 &
+    sleep 1
+  fi
+
+  echo "[startup] Waiting for MongoDB to start on ${DB_PORT}..."
+  for i in {1..60}; do
+    if mongosh --host "${MONGO_HOST}" --port "${DB_PORT}" --quiet --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
+      echo "[startup] MongoDB is ready."
+      break
     fi
-
-    # Clean up any existing socket files
-    sudo rm -f /tmp/mongodb-*.sock 2>/dev/null
-
-    echo "Starting MongoDB server on port ${DB_PORT}..."
-    nohup sudo mongod --dbpath /var/lib/mongodb --port "${DB_PORT}" --bind_ip 127.0.0.1 --unixSocketPrefix /var/run/mongodb > /var/lib/mongodb/mongod.log 2>&1 &
-    echo "Waiting for MongoDB to start..."
-    # Wait for MongoDB to start (max ~30s)
-    i=0
-    while [ $i -lt 15 ]; do
-        if mongosh --port "${DB_PORT}" --eval "db.adminCommand('ping')" > /dev/null 2>&1; then
-            echo "MongoDB is ready!"
-            break
-        fi
-        i=$((i+1))
-        echo "Waiting... ($i/15)"
-        sleep 2
-    done
+    echo "[startup] Waiting... ($i/60)"
+    sleep 1
+  done
 fi
 
-# Create admin and app users (idempotent)
-echo "Ensuring users exist..."
-mongosh --port "${DB_PORT}" << EOF
-use admin
-if (db.getUser("${DB_USER}") == null) {
+# Ensure users exist (idempotent). We treat DB_USER as an admin-like user for convenience and also create appuser on target DB.
+echo "[startup] Ensuring users exist..."
+mongosh --host "${MONGO_HOST}" --port "${DB_PORT}" --quiet <<'EOF'
+const env = (k, d) => (typeof process !== 'undefined' && process.env[k]) ? process.env[k] : d;
+const DB_NAME   = env('DB_NAME', 'myapp');
+const DB_USER   = env('DB_USER', 'appuser');
+const DB_PASS   = env('DB_PASSWORD', 'dbuser123');
+
+function ensureAdminUser() {
+  db.getSiblingDB('admin');
+  const exists = db.getUser(DB_USER);
+  if (!exists) {
     db.createUser({
-        user: "${DB_USER}",
-        pwd: "${DB_PASSWORD}",
-        roles: [
-            { role: "userAdminAnyDatabase", db: "admin" },
-            { role: "readWriteAnyDatabase", db: "admin" }
-        ]
+      user: DB_USER,
+      pwd: DB_PASS,
+      roles: [
+        { role: 'userAdminAnyDatabase', db: 'admin' },
+        { role: 'readWriteAnyDatabase', db: 'admin' }
+      ]
     });
-    print("Admin user ${DB_USER} created");
-} else {
-    print("Admin user ${DB_USER} already exists");
+    print(`[startup] Created admin user ${DB_USER}`);
+  } else {
+    print(`[startup] Admin user ${DB_USER} already exists`);
+  }
 }
 
-use ${DB_NAME}
-if (db.getUser("appuser") == null) {
-    db.createUser({
-        user: "appuser",
-        pwd: "${DB_PASSWORD}",
-        roles: [{ role: "readWrite", db: "${DB_NAME}" }]
+function ensureAppUser() {
+  const appDb = db.getSiblingDB(DB_NAME);
+  const exists = appDb.getUser('appuser');
+  if (!exists) {
+    appDb.createUser({
+      user: 'appuser',
+      pwd: DB_PASS,
+      roles: [{ role: 'readWrite', db: DB_NAME }]
     });
-    print("DB user appuser created");
-} else {
-    print("DB user appuser already exists");
+    print('[startup] Created DB user appuser');
+  } else {
+    print('[startup] DB user appuser already exists');
+  }
 }
+
+ensureAdminUser();
+ensureAppUser();
 EOF
 
-# Save connection command to a file
-echo "mongosh mongodb://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}?authSource=admin" > db_connection.txt
-echo "Connection string saved to db_connection.txt"
+# Save connection string helper (optional)
+echo "mongosh mongodb://${DB_USER}:${DB_PASSWORD}@${MONGO_HOST}:${DB_PORT}/${DB_NAME}?authSource=admin" > db_connection.txt
+echo "[startup] Connection helper written to db_connection.txt"
 
-# Save environment variables to a file for db_visualizer
-cat > db_visualizer/mongodb.env << EOF
-export MONGODB_URL="mongodb://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/?authSource=admin"
+# Prepare environment file for tooling
+mkdir -p db_visualizer
+cat > db_visualizer/mongodb.env <<EOF
+export MONGODB_URL="mongodb://${DB_USER}:${DB_PASSWORD}@${MONGO_HOST}:${DB_PORT}/?authSource=admin"
 export MONGODB_DB="${DB_NAME}"
 EOF
 
-# Run init.js idempotently
-echo "Running database initialization script (init.js)..."
-INIT_CMD="mongo --host localhost --port ${DB_PORT} -u ${DB_USER} -p ${DB_PASSWORD} --authenticationDatabase admin ${DB_NAME} vendor-parameter-mapper-845-856/vendor_parameter_mapping_database/init.js"
-# Guard: check marker document; if not present, or if indexes missing, run script
+# Determine if init.js needs to run by checking a marker collection and a known index presence
+echo "[startup] Evaluating whether init.js needs to run..."
 NEED_INIT=1
-mongosh mongodb://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}?authSource=admin --quiet --eval 'db._init_markers && db._init_markers.findOne({key:"schema_initialized"}) ? print("OK") : print("MISSING")' | grep -q "OK" && NEED_INIT=0
-
-if [ "$NEED_INIT" -eq 0 ]; then
-  echo "Initialization marker found. Ensuring a key index exists as a sanity check..."
-  # Quick check for one expected index; if missing, re-run init
-  HAS_INDEX=$(mongosh mongodb://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}?authSource=admin --quiet --eval 'var idx=db.vendors.getIndexes().map(i=>i.name); print(idx.indexOf("uniq_code")>=0?"YES":"NO")')
-  if [ "$HAS_INDEX" != "YES" ]; then
-    echo "Expected index missing; re-running init.js"
-    NEED_INIT=1
+if mongosh "mongodb://${DB_USER}:${DB_PASSWORD}@${MONGO_HOST}:${DB_PORT}/${DB_NAME}?authSource=admin" --quiet --eval 'db.getCollection("_init_markers") && db._init_markers.findOne({key:"schema_initialized"}) ? print("OK") : print("MISSING")' | grep -q "OK"; then
+  # Also verify a representative index exists (adjust name if your init.js creates a specific index)
+  HAS_INDEX=$(mongosh "mongodb://${DB_USER}:${DB_PASSWORD}@${MONGO_HOST}:${DB_PORT}/${DB_NAME}?authSource=admin" --quiet --eval 'var names=db.vendors ? db.vendors.getIndexes().map(i=>i.name) : []; print(names.indexOf("uniq_code")>=0?"YES":"NO")')
+  if [ "${HAS_INDEX}" = "YES" ]; then
+    NEED_INIT=0
   fi
 fi
 
-if [ "$NEED_INIT" -eq 1 ]; then
-  echo "Executing: $INIT_CMD"
-  sh -c "$INIT_CMD"
-  INIT_RC=$?
-  if [ $INIT_RC -ne 0 ]; then
-    echo "init.js failed with exit code $INIT_RC"
-    exit $INIT_RC
+INIT_JS_PATH="vendor-parameter-mapper-845-856/vendor_parameter_mapping_database/init.js"
+if [ "${NEED_INIT}" -eq 1 ]; then
+  if [ -f "${INIT_JS_PATH}" ]; then
+    echo "[startup] Running init.js to initialize database schema and indexes..."
+    mongo --host "${MONGO_HOST}" --port "${DB_PORT}" -u "${DB_USER}" -p "${DB_PASSWORD}" --authenticationDatabase admin "${DB_NAME}" "${INIT_JS_PATH}" || {
+      rc=$?
+      echo "[startup] init.js failed with exit code ${rc}"
+      exit "${rc}"
+    }
+    echo "[startup] init.js execution complete."
+  else
+    echo "[startup] init.js not found at ${INIT_JS_PATH}; skipping initialization."
   fi
 else
-  echo "init.js execution skipped (already initialized)."
+  echo "[startup] init.js skipped (already initialized)."
 fi
 
-echo "MongoDB setup complete!"
-echo "Database: ${DB_NAME}"
-echo "Admin user: ${DB_USER} (password: ${DB_PASSWORD})"
-echo "App user: appuser (password: ${DB_PASSWORD})"
-echo "Port: ${DB_PORT}"
-echo ""
-echo "Environment variables saved to db_visualizer/mongodb.env"
-echo "To use with Node.js viewer, run: source db_visualizer/mongodb.env"
-echo "To connect to the database, use one of the following commands:"
-echo "mongosh -u ${DB_USER} -p ${DB_PASSWORD} --port ${DB_PORT} --authenticationDatabase admin ${DB_NAME}"
-echo "$(cat db_connection.txt)"
-echo ""
-echo "MongoDB is running in the background."
-echo "You can now start your application."
+echo "[startup] MongoDB setup complete."
+echo "[startup] DB: ${DB_NAME} | Admin user: ${DB_USER} | App user: appuser | Port: ${DB_PORT}"
