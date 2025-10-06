@@ -1,0 +1,55 @@
+{
+  "$jsonSchema": {
+    "bsonType": "object",
+    "required": [
+      "entity",
+      "entity_id",
+      "action",
+      "actor",
+      "created_at"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "_id": {
+        "description": "MongoDB ObjectId"
+      },
+      "entity": {
+        "bsonType": "string",
+        "description": "Entity name (e.g., vendor, vendor_parameter, standard_parameter, mapping)",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "entity_id": {
+        "bsonType": "objectId",
+        "description": "Reference to the affected entity _id"
+      },
+      "action": {
+        "bsonType": "string",
+        "description": "CRUD action performed",
+        "enum": [
+          "create",
+          "update",
+          "delete",
+          "read"
+        ]
+      },
+      "actor": {
+        "bsonType": "string",
+        "description": "User or system performing the action",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "changes": {
+        "bsonType": [
+          "object",
+          "null"
+        ],
+        "description": "Optional diff or change details"
+      },
+      "created_at": {
+        "bsonType": "date",
+        "description": "Timestamp of the action"
+      }
+    }
+  }
+}

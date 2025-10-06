@@ -1,0 +1,67 @@
+{
+  "$jsonSchema": {
+    "bsonType": "object",
+    "required": [
+      "vendor_id",
+      "name",
+      "created_at",
+      "updated_at"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "_id": {
+        "description": "MongoDB ObjectId"
+      },
+      "vendor_id": {
+        "bsonType": "objectId",
+        "description": "Reference to vendors._id"
+      },
+      "name": {
+        "bsonType": "string",
+        "description": "Vendor-specific parameter name",
+        "minLength": 1,
+        "maxLength": 200
+      },
+      "description": {
+        "bsonType": [
+          "string",
+          "null"
+        ],
+        "description": "Optional description",
+        "maxLength": 2000
+      },
+      "data_type": {
+        "bsonType": [
+          "string",
+          "null"
+        ],
+        "enum": [
+          null,
+          "string",
+          "number",
+          "integer",
+          "boolean",
+          "date",
+          "array",
+          "object"
+        ],
+        "description": "Optional data type"
+      },
+      "metadata": {
+        "bsonType": [
+          "object",
+          "null"
+        ],
+        "description": "Optional metadata for the vendor parameter"
+      },
+      "created_at": {
+        "bsonType": "date",
+        "description": "Creation timestamp"
+      },
+      "updated_at": {
+        "bsonType": "date",
+        "description": "Last update timestamp"
+      }
+    }
+  }
+}

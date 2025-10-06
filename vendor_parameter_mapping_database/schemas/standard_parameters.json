@@ -1,0 +1,77 @@
+{
+  "$jsonSchema": {
+    "bsonType": "object",
+    "required": [
+      "name",
+      "key",
+      "category",
+      "created_at",
+      "updated_at"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "_id": {
+        "description": "MongoDB ObjectId"
+      },
+      "name": {
+        "bsonType": "string",
+        "description": "Human-readable parameter name",
+        "minLength": 1,
+        "maxLength": 200
+      },
+      "key": {
+        "bsonType": "string",
+        "description": "Machine-usable unique key for parameter",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "description": {
+        "bsonType": [
+          "string",
+          "null"
+        ],
+        "description": "Optional description",
+        "maxLength": 2000
+      },
+      "category": {
+        "bsonType": "string",
+        "description": "Parameter category",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "data_type": {
+        "bsonType": [
+          "string",
+          "null"
+        ],
+        "enum": [
+          null,
+          "string",
+          "number",
+          "integer",
+          "boolean",
+          "date",
+          "array",
+          "object"
+        ],
+        "description": "Optional data type"
+      },
+      "unit": {
+        "bsonType": [
+          "string",
+          "null"
+        ],
+        "description": "Optional unit of measure",
+        "maxLength": 50
+      },
+      "created_at": {
+        "bsonType": "date",
+        "description": "Creation timestamp"
+      },
+      "updated_at": {
+        "bsonType": "date",
+        "description": "Last update timestamp"
+      }
+    }
+  }
+}

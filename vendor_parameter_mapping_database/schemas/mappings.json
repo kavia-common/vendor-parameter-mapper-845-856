@@ -1,0 +1,63 @@
+{
+  "$jsonSchema": {
+    "bsonType": "object",
+    "required": [
+      "vendor_id",
+      "vendor_param_id",
+      "standard_param_id",
+      "confidence",
+      "created_at"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "_id": {
+        "description": "MongoDB ObjectId"
+      },
+      "vendor_id": {
+        "bsonType": "objectId",
+        "description": "Reference to vendors._id"
+      },
+      "vendor_param_id": {
+        "bsonType": "objectId",
+        "description": "Reference to vendor_parameters._id"
+      },
+      "standard_param_id": {
+        "bsonType": "objectId",
+        "description": "Reference to standard_parameters._id"
+      },
+      "confidence": {
+        "bsonType": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "description": "Confidence score between 0 and 1"
+      },
+      "notes": {
+        "bsonType": [
+          "string",
+          "null"
+        ],
+        "description": "Optional notes about the mapping",
+        "maxLength": 2000
+      },
+      "created_at": {
+        "bsonType": "date",
+        "description": "Creation timestamp"
+      },
+      "updated_at": {
+        "bsonType": [
+          "date",
+          "null"
+        ],
+        "description": "Last update timestamp"
+      },
+      "created_by": {
+        "bsonType": [
+          "string",
+          "null"
+        ],
+        "description": "User or system that created the mapping",
+        "maxLength": 128
+      }
+    }
+  }
+}
